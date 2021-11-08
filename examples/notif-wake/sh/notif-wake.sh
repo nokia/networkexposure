@@ -6,6 +6,8 @@
 
 # Get notification when device is available for data transmission.
 
+# Install standard Unix tools, curl and nc (netcat) to use.
+
 set -e
 
 function print_help() {

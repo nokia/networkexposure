@@ -4,6 +4,10 @@
 # Licensed under the BSD 3-Clause Clear License.
 # SPDX-License-Identifier: BSD-3-Clause-Clear
 
+# Run:
+# pip install -r requirements.txt
+# ./notif-wake.py
+
 import argparse
 import requests
 import threading

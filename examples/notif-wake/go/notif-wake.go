@@ -2,10 +2,10 @@
 // Licensed under the BSD 3-Clause Clear License.
 // SPDX-License-Identifier: BSD-3-Clause-Clear
 
-package main
+// Run:
+// go run ./...
 
-// $ GO111MODULE=off go get -u github.com/nokia/restful
-// $ GO111MODULE=off go run notif-wake.go --nef ...
+package main
 
 import (
 	"context"
