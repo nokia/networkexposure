@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright 2021 Nokia
+# Copyright 2021, 2022 Nokia
 # Licensed under the BSD 3-Clause Clear License.
 # SPDX-License-Identifier: BSD-3-Clause-Clear
 
@@ -11,6 +11,7 @@
 import argparse
 import requests
 import threading
+import urllib
 
 from requests.sessions import Session
 from fastapi import FastAPI
@@ -19,19 +20,26 @@ import uvicorn
 
 def parse_args():
 	arg_parser = argparse.ArgumentParser()
-	arg_parser.add_argument('--msisdn', action='store', type=str, required=True, help="MSISDN, i.e. phone number of the device")
-	arg_parser.add_argument('--nef', action='store', type=str, required=True, help="URL of NEF")
-	arg_parser.add_argument('--username', action='store', type=str, required=True, help="User name")
-	arg_parser.add_argument('--password', action='store', type=str, required=True, help="Password")
-	arg_parser.add_argument('--af', action='store', type=str, required=True, help="Application Function ID")
-	arg_parser.add_argument('--notifyurl', action='store', type=str, required=True, help="URL where you expect the notifications")
+	arg_parser.add_argument('-m', '--msisdn', action='store', type=str, required=True, help="MSISDN, i.e. phone number of the device")
+	arg_parser.add_argument('-n', '--nef', action='store', type=str, required=True, help="URL of NEF")
+	arg_parser.add_argument('-t', '--tokenurl', action='store', type=str, required=True, help="URL of authorization server serving access token")
+	arg_parser.add_argument('-c', '--clientid', action='store', type=str, required=True, help="Client ID")
+	arg_parser.add_argument('-s', '--clientsecret', action='store', type=str, required=True, help="Client secret")
+	arg_parser.add_argument('-a', '--af', action='store', type=str, required=True, help="Application Function ID")
+	arg_parser.add_argument('-N', '--notifyurl', action='store', type=str, required=True, help="URL where you expect the notifications")
 	return arg_parser.parse_args()
 
 class Client:
 	def __init__(self, args: argparse.Namespace):
 		self.args = args
 		self.client = requests.Session()
-		self.client.auth = (args.username, args.password)
+		self.client.headers["Authorization"] = "Bearer " + self._get_token()
+
+	def _get_token(self) -> str:
+		data={"grant_type": "client_credentials", "client_id": self.args.clientid, "client_secret": self.args.clientsecret}
+		resp = requests.post(url=self.args.tokenurl, data=data)
+		access_token = resp.json()["access_token"]
+		return access_token
 
 	def subscribe(self)->str:
 		data = {"msisdn": self.args.msisdn, "notificationDestination": self.args.notifyurl, "monitoringType": "UE_REACHABILITY", "reachabilityType": "DATA", "maximumNumberOfReports": 1}

@@ -1,4 +1,4 @@
-// Copyright 2021 Nokia
+// Copyright 2021, 2022 Nokia
 // Licensed under the BSD 3-Clause Clear License.
 // SPDX-License-Identifier: BSD-3-Clause-Clear
 
@@ -12,20 +12,22 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
-	"net/http/cookiejar"
+	"net/url"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/nokia/restful"
 )
 
 var (
-	msisdn    = flag.String("msisdn", "", "MSISDN, i.e. phone number of the device")
-	nef       = flag.String("nef", "", "URL of NEF")
-	username  = flag.String("username", "", "User name")
-	password  = flag.String("password", "", "Password")
-	af        = flag.String("af", "", "Application Function ID")
-	notifyURL = flag.String("notifyurl", "", "URL where you expect the notifications")
+	msisdn       = flag.String("msisdn", "", "MSISDN, i.e. phone number of the device")
+	nef          = flag.String("nef", "", "URL of NEF")
+	tokenURL     = flag.String("tokenurl", "", "URL of authorization server serving access token")
+	clientID     = flag.String("clientid", "", "Client ID")
+	clientSecret = flag.String("clientsecret", "", "Client Secret")
+	af           = flag.String("af", "", "Application Function ID")
+	notifyURL    = flag.String("notifyurl", "", "URL where you expect the notifications")
 )
 
 type MonitoringEventSubscription struct { // Simplified
@@ -85,35 +87,70 @@ func startServer(client *restful.Client, wg *sync.WaitGroup) {
 
 // Client
 
-func createClient() *restful.Client {
-	jar, _ := cookiejar.New(nil)
+func createClient(root string) *restful.Client {
 	return restful.NewClient().
-		Root(*nef).
-		SetBasicAuth(*username, *password).
-		SetJar(jar)
+		Root(root).
+		Retry(3, 500*time.Millisecond, 2*time.Second).
+		Timeout(10 * time.Second)
 }
 
-func subscribe(client *restful.Client) {
+// Get access token
+
+type tokenResp struct {
+	AccessToken string `json:"access_token"`
+}
+
+func getAccessToken() (string, error) {
+	c := createClient("")
+
+	req := url.Values{}
+	req.Set("grant_type", "client_credentials")
+	req.Set("client_id", *clientID)
+	req.Set("client_secret", *clientSecret)
+	var resp tokenResp
+
+	_, err := c.PostForm(context.Background(), *tokenURL, req, &resp)
+	return resp.AccessToken, err
+}
+
+func subscribe(client *restful.Client, token string) string {
 	ctx := context.Background()
 
 	data := MonitoringEventSubscription{Msisdn: *msisdn, NotificationDestination: *notifyURL, MonitoringType: "UE_REACHABILITY", MaximumNumberOfReports: 1, ReachabilityType: "DATA"}
 	var created MonitoringEventSubscription
-	resource, err := client.Post(ctx, "/3gpp-monitoring-event/v1/"+*af+"/subscriptions", &data, &created)
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer "+token)
+	resp, err := client.SendRecv2xx(ctx, http.MethodPost, "/3gpp-monitoring-event/v1/"+*af+"/subscriptions", headers, &data, &created)
 	panicIf(err)
+	resource, err := resp.Location()
 	fmt.Printf("Created: %+v\n", created)
 	fmt.Printf("Resource URL: %v\n", resource)
+	return resource.String()
+}
 
-	panicIf(client.Get(ctx, resource.String(), &data))
-	fmt.Printf("Queried: %+v\n", data)
+func query(client *restful.Client, resource, token string) {
+	ctx := context.Background()
+
+	var created MonitoringEventSubscription
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer "+token)
+	_, err := client.SendRecv2xx(ctx, http.MethodGet, resource, headers, nil, &created)
+	panicIf(err)
+	fmt.Printf("Queried: %+v\n", created)
 }
 
 // Main
 
 func main() {
 	checkFlags()
+
+	token, err := getAccessToken()
+	panicIf(err)
+
 	var wg sync.WaitGroup
-	client := createClient()
+	client := createClient(*nef)
 	startServer(client, &wg)
-	subscribe(client)
+	resource := subscribe(client, token)
+	query(client, resource, token)
 	wg.Wait()
 }
